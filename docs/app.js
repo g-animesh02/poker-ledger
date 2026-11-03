@@ -1,13 +1,13 @@
 import {newSession,totals,playerTotals,settlement,round} from './model.js';
-const $=id=>document.getElementById(id), key='poker-ledger-v1';
-let state=newSession(),tab='play',pendingAction,toastTimer;
-try{const saved=JSON.parse(localStorage.getItem(key));if(saved?.version===1&&Array.isArray(saved.players)&&Array.isArray(saved.events)&&saved.rate>0&&saved.tokens>0)state=saved;}catch{}
+import {createSessionStorage} from './storage.js';
+const $=id=>document.getElementById(id), sessionStorage=createSessionStorage();
+let state=sessionStorage.load(),tab=state.closed?'settle':'play',pendingAction,toastTimer;
 const money=n=>new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:2}).format(n);
 const number=n=>new Intl.NumberFormat('en-IN').format(n);
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const initials=name=>name.split(/\s+/).map(s=>s[0]).slice(0,2).join('').toUpperCase();
 function toast(message){$('toast').textContent=message;$('toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('visible'),3200);}
-function save(){try{localStorage.setItem(key,JSON.stringify(state));$('saved').textContent='● Saved on this device';}catch{$('saved').textContent='⚠ Browser storage unavailable';toast('Storage is unavailable. Export your session before leaving.');}}
+function save(){if(sessionStorage.save(state)){$('saved').textContent='● Saved on this device';}else{$('saved').textContent='⚠ Browser storage unavailable';toast('Storage is unavailable. Export your session before leaving.');}}
 function commit(){save();render();}
 function confirmAction(title,message,action,label='Continue'){$('confirm-title').textContent=title;$('confirm-message').textContent=message;$('confirm-action').textContent=label;pendingAction=action;$('confirm-dialog').showModal();}
 function buyin(playerId){if(state.closed)return;state.events.push({id:crypto.randomUUID(),playerId,amount:round(state.rate*state.tokens),chips:state.tokens,time:new Date().toISOString()});}
@@ -32,7 +32,7 @@ function renderReconcile(){const s=settlement(state);$('reconcile').className=`r
 function renderActivity(){const events=[...state.events].reverse();$('activity-count').textContent=`${events.length} entr${events.length===1?'y':'ies'}`;$('activity').innerHTML=events.length?events.map(e=>{const player=state.players.find(p=>p.id===e.playerId);return `<div class="activity-row"><span class="activity-dot">↗</span><div class="activity-info"><b>${esc(player?.name??'Player')}</b> added a buy-in<small>${new Date(e.time).toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})} · ${number(e.chips)} chips</small></div><span class="activity-value">+${money(e.amount)}</span>${state.closed?'':`<button class="undo" data-undo="${e.id}" aria-label="Undo ${esc(player?.name)} buy-in">Undo</button>`}</div>`;}).join(''):'<div class="activity-empty">No buy-ins yet. Your first one will appear here.</div>';}
 $('chip-value').addEventListener('input',preview);$('tokens').addEventListener('input',preview);
 $('settings-form').addEventListener('submit',e=>{e.preventDefault();if(state.events.length||state.closed)return;const rate=Number($('chip-value').value),tokens=Number($('tokens').value);if(!Number.isFinite(rate)||rate<.01||rate>1000000||!Number.isSafeInteger(tokens)||tokens<1||tokens>10000000)return;state.rate=round(rate);state.tokens=tokens;commit();toast('Table settings saved');});
-$('session-name').addEventListener('change',e=>{state.name=e.target.value.trim()||'Poker night';commit();});
+$('session-name').addEventListener('input',e=>{state.name=e.target.value.trim()||'Poker night';save();});
 function openPlayer(){$('player-form').reset();$('player-dialog').showModal();$('player-name').focus();}
 $('add-player').addEventListener('click',openPlayer);
 $('player-form').addEventListener('submit',e=>{e.preventDefault();if(state.closed)return;const name=$('player-name').value.trim();if(!name){$('player-name').setCustomValidity('Enter a player name.');$('player-name').reportValidity();return;}if(state.players.some(p=>p.name.toLowerCase()===name.toLowerCase())){toast('A player with that name is already at the table');return;}const id=crypto.randomUUID();state.players.push({id,name,final:null});if($('first-buyin').checked)buyin(id);$('player-dialog').close();commit();toast(`${name} joined the table`);});
